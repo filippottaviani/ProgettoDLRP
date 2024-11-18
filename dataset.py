@@ -5,7 +5,7 @@ from torchvision.io import read_image
 from torch.utils.data import Dataset
 
 
-class DepthDataset(Dataset):
+class DepthDataset(Dataset):  # commento di prova
     TRAIN = 0
     VAL = 1
     TEST = 2
@@ -13,13 +13,13 @@ class DepthDataset(Dataset):
     def __init__(self, data_dir, train=TRAIN, transform=None):
 
         self.data_dir = data_dir
-        if train==DepthDataset.TRAIN:
+        if train == DepthDataset.TRAIN:
             rgb_img_dir = os.path.join(self.data_dir, 'rgb', 'train')
             depth_img_dir = os.path.join(self.data_dir, 'depth', 'train')
-        elif train==DepthDataset.VAL:
+        elif train == DepthDataset.VAL:
             rgb_img_dir = os.path.join(self.data_dir, 'rgb', 'val')
             depth_img_dir = os.path.join(self.data_dir, 'depth', 'val')
-        elif train==DepthDataset.TEST:
+        elif train == DepthDataset.TEST:
             rgb_img_dir = os.path.join(self.data_dir, 'rgb', 'test')
             depth_img_dir = os.path.join(self.data_dir, 'depth', 'test')
         else:
