@@ -5,7 +5,7 @@ from torchvision.io import read_image
 from torch.utils.data import Dataset
 
 
-class DepthDataset(Dataset):  # commento di prova
+class DepthDataset(Dataset):
     TRAIN = 0
     VAL = 1
     TEST = 2
