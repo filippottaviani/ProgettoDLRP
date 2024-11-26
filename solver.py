@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from model import Generator, Discriminator
 
 from dataset import DepthDataset
 from utils import visualize_img, ssim
@@ -20,19 +21,61 @@ class Solver():
             self.val_data = DepthDataset(train=DepthDataset.VAL,
                                          data_dir=args.data_dir,
                                          transform=None)
+            self.train_loader = DataLoader(dataset=self.train_data,
+                                           batch_size=args.batch_size,
+                                           num_workers=4,
+                                           shuffle=True, drop_last=True)
 
-            #TODO
+            # turn on the CUDA if available
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            # modelli
+            self.generator = Generator().to(self.device)
+            self.discriminator = Discriminator().to(self.device)
+
+            #crietrion, optimizer di G e D
+            self.criterion_adv = torch.nn.BCELoss()
+            self.criterion_rec = torch.nn.L1Loss()
+            self.optimizer_G = torch.optim.Adam(self.generator.parameters(), lr=args.lr)
+            self.optimizer_D = torch.optim.Adam(self.discriminator.parameters(), lr=args.lr)
+
+            self.args = args
 
             if not os.path.exists(args.ckpt_dir):
                 os.makedirs(args.ckpt_dir)
         else:
-            self.test_set = DepthDataset(train=DepthDataset.TEST,
-                                    data_dir=self.args.data_dir)
+            self.test_set = DepthDataset(train=DepthDataset.TEST, # train = DepthDataset.VAL per il val set
+                                    data_dir=self.args.data_dir)  # risistemare prima del commit
             ckpt_file = os.path.join("checkpoint", self.args.ckpt_file)
-            self.net.load_state_dict(torch.load(ckpt_file, weights_only=True))
+            self.generator.load_state_dict(torch.load(ckpt_file, weights_only=True))
 
     def fit(self):
-        #TODO
+
+        for epoch in range(self.args.max_epochs):
+            self.generator.train()
+            self.discriminator.train()
+            for images, depth in self.train_loader:
+                images, depth = images.to(self.device), depth.to(self.device)
+
+                # Train Discriminator
+                self.optimizer_D.zero_grad()
+                fake_depth = self.generator(images)
+                real_labels = torch.ones((images.size(0), 1)).to(self.device)
+                fake_labels = torch.zeros((images.size(0), 1)).to(self.device)
+                real_loss = self.criterion_adv(self.discriminator(torch.cat([images, depth], dim=1)), real_labels)
+                fake_loss = self.criterion_adv(self.discriminator(torch.cat([images, fake_depth.detach()], dim=1)),
+                                               fake_labels)
+                d_loss = (real_loss + fake_loss) / 2
+                d_loss.backward()
+                self.optimizer_D.step()
+
+                # Train Generator
+                self.optimizer_G.zero_grad()
+                adv_loss = self.criterion_adv(self.discriminator(torch.cat([images, fake_depth], dim=1)), real_labels)
+                rec_loss = self.criterion_rec(fake_depth, depth)
+                g_loss = adv_loss + self.args.lambda_rec * rec_loss
+                g_loss.backward()
+                self.optimizer_G.step()
         return
 
 
@@ -53,12 +96,12 @@ class Solver():
                             num_workers=4,
                             shuffle=False, drop_last=False)
 
-        self.net.eval()
+        self.generator.eval()
         ssim_acc = 0.0
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
-                output = self.net(images.to(self.device))
+                output = self.generator(images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:
@@ -72,7 +115,12 @@ class Solver():
     def save(self, ckpt_dir, ckpt_name, global_step):
         save_path = os.path.join(
             ckpt_dir, "{}_{}.pth".format(ckpt_name, global_step))
-        torch.save(self.net.state_dict(), save_path)
+        torch.save({
+            'generator_state_dict': self.generator.state_dict(),
+            'discriminator_state_dict': self.discriminator.state_dict(),
+            'optimizer_G_state_dict': self.optimizer_G.state_dict(),
+            'optimizer_D_state_dict': self.optimizer_D.state_dict()
+        }, save_path)
 
     def test(self):
 
@@ -85,7 +133,7 @@ class Solver():
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
-                output = self.net(images.to(self.device))
+                output = self.generator(images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:

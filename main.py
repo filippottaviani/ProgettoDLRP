@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--data_dir", type=str,
                         default=os.path.join("C:\\", "Users", "FilippoOttaviani", "PycharmProjects", "ProgettoDLRP", "dataset"))
 
-    parser.add_argument("--is_train", type=bool, default=True)
+    parser.add_argument("--is_train", type=bool, default=True) # --is_train=False per effettuare il test
     parser.add_argument("--ckpt_file", type=str, default="depth_10.pth")
 
     args = parser.parse_args()
