@@ -62,8 +62,8 @@ class Solver():
                 fake_depth = self.generator(images)
                 real_labels = torch.ones((images.size(0), 1)).to(self.device)
                 fake_labels = torch.zeros((images.size(0), 1)).to(self.device)
-                real_loss = self.criterion_adv(self.discriminator(torch.cat([images, depth], dim=1)), real_labels)
-                fake_loss = self.criterion_adv(self.discriminator(torch.cat([images, fake_depth.detach()], dim=1)),
+                real_loss = self.criterion_adv(self.discriminator(images, depth), real_labels)
+                fake_loss = self.criterion_adv(self.discriminator(images, fake_depth.detach()),
                                                fake_labels)
                 d_loss = (real_loss + fake_loss) / 2
                 d_loss.backward()
@@ -71,7 +71,8 @@ class Solver():
 
                 # Train Generator
                 self.optimizer_G.zero_grad()
-                adv_loss = self.criterion_adv(self.discriminator(torch.cat([images, fake_depth], dim=1)), real_labels)
+                adv_loss = self.criterion_adv(self.discriminator(images, fake_depth), real_labels)
+
                 rec_loss = self.criterion_rec(fake_depth, depth)
                 g_loss = adv_loss + self.args.lambda_rec * rec_loss
                 g_loss.backward()
