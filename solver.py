@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from model import Generator, Discriminator
+from model import Generator, Discriminator, UNet
 
 from dataset import DepthDataset
 from utils import visualize_img, ssim
@@ -30,13 +30,17 @@ class Solver():
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
             # modelli
-            self.generator = Generator().to(self.device)
+            #self.generator = Generator().to(self.device)
             self.discriminator = Discriminator().to(self.device)
+            self.UNet = UNet().to(self.device) # prova U-Net TODO sistemare dopo U-Net
 
-            #crietrion, optimizer di G e D
+            #criteri
             self.criterion_adv = torch.nn.BCELoss()
             self.criterion_rec = torch.nn.L1Loss()
-            self.optimizer_G = torch.optim.Adam(self.generator.parameters(), lr=args.lr)
+
+            # ottimizzatori
+            #self.optimizer_G = torch.optim.Adam(self.generator.parameters(), lr=args.lr) # TODO sistemare dopo U-Net
+            self.optimizer_G = torch.optim.Adam(self.UNet.parameters(), lr=args.lr)
             self.optimizer_D = torch.optim.Adam(self.discriminator.parameters(), lr=args.lr)
 
             self.args = args
@@ -47,24 +51,33 @@ class Solver():
             self.test_set = DepthDataset(train=DepthDataset.TEST, # train = DepthDataset.VAL per il val set
                                     data_dir=self.args.data_dir)  # risistemare prima del commit
             ckpt_file = os.path.join("checkpoint", self.args.ckpt_file)
-            self.generator.load_state_dict(torch.load(ckpt_file, weights_only=True))
+            # self.generator.load_state_dict(torch.load(ckpt_file, weights_only=True)) # TODO sistemare dopo U-Net
+            self.UNet.load_state_dict(torch.load(ckpt_file, weights_only=True))
 
     def fit(self):
 
         for epoch in range(self.args.max_epochs):
-            self.generator.train()
+            #self.generator.train() # TODO sistemare dopo U-Net
+            self.UNet.train()
             self.discriminator.train()
             for images, depth in self.train_loader:
-                images, depth = images.to(self.device), depth.to(self.device)
+
+                images = images.to(self.device)
+                depth = depth.to(self.device)
+
+                print(f"Input device: {images.device}, Model device: {next(self.UNet.parameters()).device}")
 
                 # Train Discriminator
                 self.optimizer_D.zero_grad()
-                fake_depth = self.generator(images)
+                #fake_depth = self.generator(images) # TODO sistemare dopo U-Net
+                fake_depth = self.UNet(images)
+
                 real_labels = torch.ones((images.size(0), 1)).to(self.device)
                 fake_labels = torch.zeros((images.size(0), 1)).to(self.device)
+
                 real_loss = self.criterion_adv(self.discriminator(images, depth), real_labels)
-                fake_loss = self.criterion_adv(self.discriminator(images, fake_depth.detach()),
-                                               fake_labels)
+                fake_loss = self.criterion_adv(self.discriminator(images, fake_depth.detach()), fake_labels)
+
                 d_loss = (real_loss + fake_loss) / 2
                 d_loss.backward()
                 self.optimizer_D.step()
@@ -97,12 +110,16 @@ class Solver():
                             num_workers=4,
                             shuffle=False, drop_last=False)
 
-        self.generator.eval()
+        #self.generator.eval()
+        self.UNet.eval()
+        # TODO sistemare dopo U-Net
         ssim_acc = 0.0
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
-                output = self.generator(images.to(self.device))
+                #output = self.generator(images.to(self.device)) # TODO sistemare dopo U-Net
+                output = self.UNet(images.to(self.device))
+
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:
@@ -117,7 +134,8 @@ class Solver():
         save_path = os.path.join(
             ckpt_dir, "{}_{}.pth".format(ckpt_name, global_step))
         torch.save({
-            'generator_state_dict': self.generator.state_dict(),
+            # 'generator_state_dict': self.generator.state_dict(), TODO sistemare dopo U-Net
+            'generator_state_dict': self.UNet.state_dict(),
             'discriminator_state_dict': self.discriminator.state_dict(),
             'optimizer_G_state_dict': self.optimizer_G.state_dict(),
             'optimizer_D_state_dict': self.optimizer_D.state_dict()
@@ -134,7 +152,8 @@ class Solver():
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
-                output = self.generator(images.to(self.device))
+                #output = self.generator(images.to(self.device)) TODO sistemare dopo U-Net
+                output = self.UNet(images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:
