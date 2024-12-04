@@ -40,11 +40,6 @@ class Generator(nn.Module):
         out_enc = self.encoder(x)
         out_dec = self.decoder(out_enc)
 
-        # prova dimensioni
-        print(f"Input x shape: {x.shape}")
-        print(f"Encoded shape: {out_enc.shape}")
-        print(f"Decoded shape: {out_dec.shape}")
-
         # concatenazione
         combined_input = torch.cat((x, out_dec), dim=1)
 
@@ -86,7 +81,7 @@ class Discriminator(nn.Module):
 
         # layer completamente connessi
         self.fc = nn.Sequential(
-            nn.Flatten(), nn.Linear(512 * 4 * 4, 1024),  # assume dimensioni finali 4x4 dopo convoluzioni
+            nn.Flatten(), nn.LazyLinear(1024),
             nn.LeakyReLU(0.2), nn.Linear(1024, 1),  # output binario (vero/falso)
             nn.Sigmoid()
         )
@@ -104,7 +99,6 @@ class Discriminator(nn.Module):
         return output
 
 
-
 #   U-NET
 class UNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=1):
@@ -120,17 +114,21 @@ class UNet(nn.Module):
         self.bottleneck = self._block(512, 1024)
 
         # Blocchi di decoding
-        self.dec4 = self._block(1024 + 512, 512)
-        self.dec3 = self._block(512 + 256, 256)
-        self.dec2 = self._block(256 + 128, 128)
-        self.dec1 = self._block(128 + 64, 64)
+        self.dec4 = self._block(1024, 512)
+        self.dec3 = self._block(512, 256)
+        self.dec2 = self._block(256 , 128)
+        self.dec1 = self._block(128, 64)
 
         # Output
         self.output = nn.Conv2d(64, out_channels, kernel_size=1)
 
         # Pooling e upsampling
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.up = nn.ConvTranspose2d
+        # self.up = nn.ConvTranspose2d non viene caricato correttamente in GPU
+        self.up4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2).to(torch.device("cuda"))
+        self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2).to(torch.device("cuda"))
+        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2).to(torch.device("cuda"))
+        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2).to(torch.device("cuda"))
 
     def _block(self, in_channels, out_channels):
         return nn.Sequential(
@@ -151,19 +149,23 @@ class UNet(nn.Module):
         bottleneck = self.bottleneck(self.pool(enc4))
 
         # Decoder
-        dec4 = self.up(1024, 512, kernel_size=2, stride=2)(bottleneck)
+        #dec4 = self.up(1024, 512, kernel_size=2, stride=2)(bottleneck)
+        dec4 = self.up4(bottleneck)
         dec4 = torch.cat((dec4, enc4), dim=1)
         dec4 = self.dec4(dec4)
 
-        dec3 = self.up(256, 256, kernel_size=2, stride=2)(dec4)
+        #dec3 = self.up(256, 256, kernel_size=2, stride=2)(dec4)
+        dec3 = self.up3(dec4)
         dec3 = torch.cat((dec3, enc3), dim=1)
         dec3 = self.dec3(dec3)
 
-        dec2 = self.up(128, 128, kernel_size=2, stride=2)(dec3)
+        #dec2 = self.up(128, 128, kernel_size=2, stride=2)(dec3)
+        dec2 = self.up2(dec3)
         dec2 = torch.cat((dec2, enc2), dim=1)
         dec2 = self.dec2(dec2)
 
-        dec1 = self.up(64, 64, kernel_size=2, stride=2)(dec2)
+        #dec1 = self.up(64, 64, kernel_size=2, stride=2)(dec2)
+        dec1 = self.up1(dec2)
         dec1 = torch.cat((dec1, enc1), dim=1)
         dec1 = self.dec1(dec1)
 

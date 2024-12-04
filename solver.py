@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn.functional as F
+from sympy import evaluate
 from torch.utils.data import DataLoader
 from model import Generator, Discriminator, UNet
 
@@ -32,7 +33,7 @@ class Solver():
             # modelli
             #self.generator = Generator().to(self.device)
             self.discriminator = Discriminator().to(self.device)
-            self.UNet = UNet().to(self.device) # prova U-Net TODO sistemare dopo U-Net
+            self.UNet = UNet().to(self.device)  # prova U-Net TODO sistemare dopo U-Net
 
             #criteri
             self.criterion_adv = torch.nn.BCELoss()
@@ -43,13 +44,17 @@ class Solver():
             self.optimizer_G = torch.optim.Adam(self.UNet.parameters(), lr=args.lr)
             self.optimizer_D = torch.optim.Adam(self.discriminator.parameters(), lr=args.lr)
 
+            # peso delle perdite
+            self.lambda_rec = 50
+            self.lambda_adv = 1
+
             self.args = args
 
             if not os.path.exists(args.ckpt_dir):
                 os.makedirs(args.ckpt_dir)
         else:
-            self.test_set = DepthDataset(train=DepthDataset.TEST, # train = DepthDataset.VAL per il val set
-                                    data_dir=self.args.data_dir)  # risistemare prima del commit
+            self.test_set = DepthDataset(train=DepthDataset.TEST,  # train = DepthDataset.VAL per il val set
+                                         data_dir=self.args.data_dir)  # risistemare prima del commit
             ckpt_file = os.path.join("checkpoint", self.args.ckpt_file)
             # self.generator.load_state_dict(torch.load(ckpt_file, weights_only=True)) # TODO sistemare dopo U-Net
             self.UNet.load_state_dict(torch.load(ckpt_file, weights_only=True))
@@ -61,11 +66,8 @@ class Solver():
             self.UNet.train()
             self.discriminator.train()
             for images, depth in self.train_loader:
-
                 images = images.to(self.device)
                 depth = depth.to(self.device)
-
-                print(f"Input device: {images.device}, Model device: {next(self.UNet.parameters()).device}")
 
                 # Train Discriminator
                 self.optimizer_D.zero_grad()
@@ -87,11 +89,17 @@ class Solver():
                 adv_loss = self.criterion_adv(self.discriminator(images, fake_depth), real_labels)
 
                 rec_loss = self.criterion_rec(fake_depth, depth)
-                g_loss = adv_loss + self.args.lambda_rec * rec_loss
+                g_loss = self.lambda_adv * adv_loss + self.lambda_rec * rec_loss
                 g_loss.backward()
                 self.optimizer_G.step()
-        return
 
+
+            print("Epoch [{}/{}] Loss G: {:.3f} Loss D: {:.3f}".format(epoch + 1, self.args.max_epochs, g_loss, d_loss))
+            epoch +=1
+
+            evaluate(self)
+
+        return
 
     def evaluate(self, set):
 
