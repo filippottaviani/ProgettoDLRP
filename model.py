@@ -66,24 +66,27 @@ class Discriminator(nn.Module):
 
         # concatenazione e ulteriori convoluzioni
         self.joint_path = nn.Sequential(
+
+            # conv1
             nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.Dropout(0.3), nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2), nn.BatchNorm2d(64),
 
+            # conv2
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.Dropout(0.3), nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2), nn.BatchNorm2d(128),
 
+            # conv3
             nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.Dropout(0.3), nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2), nn.BatchNorm2d(256),
 
+            # conv4
             nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.Dropout(0.3), nn.BatchNorm2d(512)
+            nn.LeakyReLU(0.2), nn.BatchNorm2d(512)
         )
 
         # layer completamente connessi
         self.fc = nn.Sequential(
-            nn.Flatten(), nn.LazyLinear(1024),
-            nn.LeakyReLU(0.2), nn.Linear(1024, 1),  # output binario (vero/falso)
-            nn.Sigmoid()
+            nn.Linear(512 * 4 * 4 * 4, 1024), nn.LeakyReLU(0.2), nn.Linear(1024, 1),  # output binario (vero/falso)
         )
 
     def forward(self, rgb, depth):
