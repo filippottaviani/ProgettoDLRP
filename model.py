@@ -1,52 +1,90 @@
 # models.py
 import torch
 import torch.nn as nn
-from torch.xpu import device
+from torch.nn import Flatten
 
 
-class Generator(nn.Module):
+class Generator1(nn.Module):
     def __init__(self):
-        super(Generator, self).__init__()
+        super(Generator1, self).__init__()
         # encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1), nn.ReLU()
+            nn.Conv2d(3, 64, kernel_size=2, stride=2, padding=2), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=2, stride=2, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=2, stride=2, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+            nn.Conv2d(256, 512, kernel_size=2, stride=2, padding=1), nn.BatchNorm2d(512), nn.ReLU(),
+            nn.Conv2d(512, 512, kernel_size=2, stride=1, padding=1), nn.BatchNorm2d(512), nn.ReLU(),
+            nn.Conv2d(512, 1024, kernel_size=2, stride=1, padding=1), nn.BatchNorm2d(1024), nn.ReLU(),
         )
 
         # decoder
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(64, 1, kernel_size=4, stride=2, padding=1), nn.Tanh()
+            nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=1, padding=1), nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 512, kernel_size=2, stride=1, padding=1),  nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2, padding=1), nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2, padding=1), nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 1, kernel_size=2, stride=2, padding=2), nn.BatchNorm2d(1),
+            nn.ReLU(),
+            #nn.ConvTranspose2d(64, 1, kernel_size=1, stride=2, padding=2),
+            nn.Tanh()
         )
 
+        # additional
+        self.additional = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+        )
+
+        # upsample
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
         # refinement
-        self.refinement = nn.Sequential(
-            nn.Conv2d(4, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
-            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1),
-            nn.Tanh()  # Mappa finale di profondità tra -1 e 1
+        self.refinement1 = nn.Sequential(
+            #nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128),nn.ReLU(),
+            #nn.ConvTranspose2d(128, 64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            #nn.ConvTranspose2d(64, 1, kernel_size=3, stride=1, padding=1),
+            #nn.Tanh()  # Mappa finale di profondità tra -1 e 1
+        )
+
+        self.refinement2 = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.ConvTranspose2d(64, 1, kernel_size=3, stride=1, padding=1),
+            # nn.Tanh()  # Mappa finale di profondità tra -1 e 1
         )
 
     def forward(self, x):
         # global
         out_enc = self.encoder(x)
         out_dec = self.decoder(out_enc)
+        #print("encoder: ", out_enc.size())
+        #print("decoder: ",out_dec.size())
+        #print("x: ",x.size())
 
-        # concatenazione
-        combined_input = torch.cat((x, out_dec), dim=1)
+        # upsampling
+        up = self.upsample(out_dec)
 
         # refinement
-        ref_output = self.refinement(combined_input)
+        ref1_output = self.refinement1(up)
+        add = self.additional(x)
+        concat = torch.cat((add,ref1_output),dim=1)
+        ref2_output = self.refinement2(concat)
 
-        return ref_output
+        #print("refinement: ", ref_output.size())
+
+        # concatenazione tra uscita glob(x2) e uscita ref
+        combined_output = torch.add(up, ref2_output)
+
+        #print("out: ", combined_output.size())
+
+        return combined_output
 
 class Discriminator(nn.Module):
     def __init__(self):
@@ -69,24 +107,24 @@ class Discriminator(nn.Module):
 
             # conv1
             nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2),
 
             # conv2
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2),
 
             # conv3
             nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2),
 
             # conv4
             nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2), nn.BatchNorm2d(512)
+            nn.LeakyReLU(0.2)
         )
 
         # layer completamente connessi
-        self.fc = nn.Sequential(
-            nn.Linear(512 * 4 * 4 * 4, 1024), nn.LeakyReLU(0.2), nn.Linear(1024, 1),  # output binario (vero/falso)
+        self.fc = nn.Sequential(nn.Flatten(), nn.LazyLinear(1024), nn.LeakyReLU(0.2),
+                                nn.Linear(1024, 1), nn.Sigmoid()  # output binario (vero/falso)
         )
 
     def forward(self, rgb, depth):
@@ -103,24 +141,24 @@ class Discriminator(nn.Module):
 
 
 #   U-NET
-class UNet(nn.Module):
+class Generator(nn.Module):
     def __init__(self, in_channels=3, out_channels=1):
-        super(UNet, self).__init__()
+        super(Generator, self).__init__()
 
         # Blocchi di encoding
-        self.enc1 = self._block(in_channels, 64)
-        self.enc2 = self._block(64, 128)
-        self.enc3 = self._block(128, 256)
-        self.enc4 = self._block(256, 512)
+        self.enc1 = self.block(in_channels, 64)
+        self.enc2 = self.block(64, 128)
+        self.enc3 = self.block(128, 256)
+        self.enc4 = self.block(256, 512)
 
         # Bottleneck
-        self.bottleneck = self._block(512, 1024)
+        self.bottleneck = self.block(512, 1024)
 
         # Blocchi di decoding
-        self.dec4 = self._block(1024, 512)
-        self.dec3 = self._block(512, 256)
-        self.dec2 = self._block(256 , 128)
-        self.dec1 = self._block(128, 64)
+        self.dec4 = self.block(1024, 512)
+        self.dec3 = self.block(512, 256)
+        self.dec2 = self.block(256 , 128)
+        self.dec1 = self.block(128, 64)
 
         # Output
         self.output = nn.Conv2d(64, out_channels, kernel_size=1)
@@ -133,7 +171,7 @@ class UNet(nn.Module):
         self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2).to(torch.device("cuda"))
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2).to(torch.device("cuda"))
 
-    def _block(self, in_channels, out_channels):
+    def block(self, in_channels, out_channels):
         return nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
