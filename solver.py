@@ -102,8 +102,8 @@ class Solver():
                 # addestramento generatore
                 self.optimizer_G.zero_grad()
                 adv_loss = self.criterion_adv(self.discriminator(images, fake_depth), real_labels)
-                # rec_loss = self.criterion_rec(fake_depth, depth)
-                rec_loss = ssim(fake_depth,depth) # prova
+                rec_loss = self.criterion_rec(fake_depth, depth)
+                #rec_loss = ssim(fake_depth,depth) # prova
 
                 g_loss = self.lambda_adv * adv_loss + self.lambda_rec * rec_loss
                 g_loss.backward()
