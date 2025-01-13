@@ -53,7 +53,11 @@ class GlobalNet(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(),
 
-            nn.ConvTranspose2d(128, 1, kernel_size=2, stride=2, padding=2),
+            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(64, 1, kernel_size=2, stride=2, padding=2),
             nn.BatchNorm2d(1),
             nn.ReLU(),
 
@@ -63,7 +67,12 @@ class GlobalNet(nn.Module):
     def forward(self, x):
         # global
         out_enc = self.encoder(x)
+        #print(out_enc.shape)
         out_dec = self.decoder(out_enc)
+        #print(out_dec.shape)
+
+        # upsampling
+        #up = self.upsample(out_dec)
 
         return out_dec
 
@@ -73,8 +82,8 @@ class RefinementNet(nn.Module):
         super(RefinementNet, self).__init__()
 
         #refinement
-        self.refinement = nn.Sequential(
-            nn.Conv2d(4, 64, kernel_size=3, stride=1, padding=1),
+        self.refinement1 = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
 
@@ -82,11 +91,11 @@ class RefinementNet(nn.Module):
             nn.BatchNorm2d(64),
             nn.ReLU(),
 
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
+            #nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            #nn.BatchNorm2d(64),
+            #nn.ReLU(),
 
-            nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
 
             #nn.Tanh()  # Mappa finale di profondità tra -1 e 1
         )
@@ -104,21 +113,24 @@ class RefinementNet(nn.Module):
             # nn.Tanh()  # Mappa finale di profondità tra -1 e 1
         )
 
-    def forward(self, x, out_global):
-        # upsampling
-        up = self.upsample(out_global)
+        # additional
+        self.additional = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(),
+        )
+
+    def forward(self, out_global, x):
 
         # refinement
-        ref1_output = self.refinement1(up)
+        ref1_output = self.refinement1(out_global)
+        #print(ref1_output.shape )
         add = self.additional(x)
         concat = torch.cat((add, ref1_output), dim=1)
-        ref2_output = self.refinement2(concat)
-
-        # print("refinement: ", ref_output.size())
+        ref2_output = self.refinement2(concat) # si aspetta 256
 
         # concatenazione tra uscita glob(x2) e uscita ref
-        combined_output = torch.add(up, ref2_output)
-
+        combined_output = torch.add(out_global, ref2_output)
         # print("out: ", combined_output.size())
 
         return combined_output

@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from fontTools.unicodedata import block
 from torch.utils.data import DataLoader
 import datetime  # per verificare i tempi di addestramento
 
@@ -34,7 +35,7 @@ class Solver:
 
             # modelli
             self.globalnet = GlobalNet().to(self.device)
-            self.refnet = RefinementNet.to(self.device)
+            self.refnet = RefinementNet().to(self.device)
             self.discriminator = Discriminator().to(self.device)
 
             # criteri
@@ -74,7 +75,7 @@ class Solver:
             self.refnet.load_state_dict(torch.load(ckpt_file, weights_only=True))
 
     def globalNetFit(self):
-        print("ADVERSARIAL FITTING")
+        print("GLOBAL FITTING")
         for epoch in range(self.args.max_epochs):
             self.globalnet.train()
 
@@ -82,25 +83,26 @@ class Solver:
                 images, depth = images.to(self.device), depth.to(self.device)
 
                 fake_depth = self.globalnet(images)
-                self.optimizer_G.zero_grad()
-
                 g_loss = self.criterion_rec(fake_depth, depth)
+
+                self.optimizer_G.zero_grad()
                 g_loss.backward()
                 self.optimizer_G.step()
 
-                # monitoraggio addestramento
-                time = datetime.datetime.now()
-                curr_clock = time.strftime("%H:%M:%S")
-                print("Epoch [{}/{}] Loss Global Net: {:.3f} Time:{}".format(epoch + 1, self.args.max_epochs,
-                                                                             g_loss, curr_clock))
-                epoch += 1
+            # monitoraggio addestramento
+            time = datetime.datetime.now()
+            curr_clock = time.strftime("%H:%M:%S")
+            print("Epoch [{}/{}] Loss Global Net: {:.3f} Time:{}".format(epoch + 1, self.args.max_epochs,
+                                                                         g_loss, curr_clock))
+            epoch += 1
 
-                if epoch % 10 == 0:
-                    self.global_evaluate()
+            if epoch % 10 == 0:
+                self.global_evaluate()
 
-                if epoch == self.args.max_epochs:
-                    #self.save(self.args.ckpt_dir, "globalnet_final.pth", epoch)
-                    self.plot_metrics("Global")
+            if epoch == self.args.max_epochs:
+                #self.save(self.args.ckpt_dir, "globalnet_final.pth", epoch)
+                self.plot_metrics("Global")
+        epoch = 0
 
     def adversarialFit(self):
         print("\n\nADVERSARIAL FITTING")
@@ -128,26 +130,25 @@ class Solver:
                 # addestramento refinement
                 self.optimizer_R.zero_grad()
                 adv_loss = self.criterion_adv(self.discriminator(images, fake_depth), real_labels)
-
                 rec_loss = self.criterion_rec(fake_depth, depth)
-                r_loss = adv_loss + self.args.lambda_rec * rec_loss
+
+                r_loss = adv_loss + self.lambda_rec * rec_loss
                 r_loss.backward()
-                self.optimizer_G.step()
+                self.optimizer_R.step()
 
-                # monitoraggio addestramento
-                time = datetime.datetime.now()
-                curr_clock = time.strftime("%H:%M:%S")
-                print("Epoch [{}/{}] Loss R: {:.3f} Loss D: {:.3f} Time:{}".format(epoch + 1, self.args.max_epochs,
-                                                                                   r_loss, d_loss, curr_clock))
-                epoch += 1
+            # monitoraggio addestramento
+            time = datetime.datetime.now()
+            curr_clock = time.strftime("%H:%M:%S")
+            print("Epoch [{}/{}] Loss R: {:.3f} Loss D: {:.3f} Time:{}".format(epoch + 1, self.args.max_epochs,
+                                                                               r_loss, d_loss, curr_clock))
+            epoch += 1
 
-                if epoch % 10 == 0:
-                    self.adv_evaluate()
+            if epoch % 10 == 0:
+                self.adv_evaluate()
 
-                if epoch == self.args.max_epochs:
-                    self.save(self.args.ckpt_dir, "depth_final.pth", epoch)
-                    self.plot_metrics("Adversarial")
-        return
+            if epoch == self.args.max_epochs:
+                self.save(self.args.ckpt_dir, "depth_final.pth", epoch)
+                self.plot_metrics("Adversarial")
 
     def global_evaluate(self):
         args = self.args
@@ -247,4 +248,6 @@ class Solver:
         plt.title("Andamento SSIM e RMSE durante "+tr_type+" Training")
         plt.legend()
         plt.grid(True)
-        plt.show()
+        plt.show(block=False)
+        plt.pause(20)
+        plt.close()

@@ -21,7 +21,7 @@ def main():
     args = parser.parse_args()
     solver = Solver(args)
     if args.is_train:
-        solver.globalNetFit()
+        #solver.globalNetFit()
         solver.adversarialFit()
     else:
         solver.test()
