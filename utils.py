@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 from torch.autograd import Variable
 from math import exp
 from matplotlib import pyplot as plt
@@ -58,3 +59,36 @@ def ssim(img1, img2, window_size=11, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
+
+def random_crop_pair(self, image, depth):
+    _, h, w = image.shape
+    top = torch.randint(0, h - self.crop_size + 1, (1,)).item()
+    left = torch.randint(0, w - self.crop_size + 1, (1,)).item()
+
+    cropped_image = TF.crop(image, top, left, self.crop_size, self.crop_size)
+    cropped_depth = TF.crop(depth, top, left, self.crop_size, self.crop_size)
+
+    return cropped_image, cropped_depth
+
+def plot_metrics(self):
+    plt.plot(self.adv_train_rmse_epochs, label="ADV RMSE")
+    plt.xlabel("Intervallo di valutazione (10 epoche)")
+    plt.ylabel("RMSE")
+    plt.title("Andamento RMSE durante gli addestramenti")
+    #plt.legend()
+    plt.grid(True)
+    plt.show(block=False)
+    plt.pause(20)
+    plt.savefig('rmse_metrics.png')
+    plt.close()
+
+    plt.plot(self.adv_train_ssim_epochs, label="ADV SSIM")
+    plt.xlabel("Intervallo di valutazione (10 epoche)")
+    plt.ylabel("SSIM")
+    plt.title("Andamento SSIM durante gli addestramenti")
+    #plt.legend()
+    plt.grid(True)
+    plt.show(block=False)
+    plt.pause(20)
+    plt.savefig('ssim_metrics.png')
+    plt.close()
