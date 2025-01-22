@@ -15,11 +15,14 @@ class Solver:
         # prepare a dataset
         self.args = args
 
-        # Definisco le trasformazioni per la data augmentation
+        # Definisco le trasformazioni per la data augmentation (non utilizzate)
         data_augmentation = transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.RandomResizedCrop((144, 256), scale=(0.9, 1.0))
         ])
+
+        # per testare solo la global
+        self.args.only_global = True
 
         # turn on the CUDA if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,18 +47,18 @@ class Solver:
             # criteri
             self.criterion_adv = torch.nn.BCELoss()
             self.criterion_rec = torch.nn.L1Loss()
+            self.criterion_rec1 = torch.nn.MSELoss() # prova
 
             # ottimizzatori
             self.optimizer_G = torch.optim.Adam(self.globalnet.parameters(), lr=args.lr, betas=(0.9,0.999))
-            self.optimizer_R = torch.optim.RAdam(self.refnet.parameters(), lr=args.lr, betas=(0.9,0.999))
-            #self.optimizer_R = torch.optim.SGD(self.refnet.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
+            self.optimizer_R = torch.optim.SGD(self.refnet.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
             self.optimizer_D = torch.optim.SGD(self.discriminator.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
 
             # pesi delle loss
-            self.lambda_start = 100
+            self.lambda_start = 10
 
             # fattore di crop per la refinement
-            self.crop_size = 64
+            self.crop_size = 128
 
             # train/val
             self.set = DepthDataset.TRAIN
@@ -141,7 +144,7 @@ class Solver:
 
     def adversarial_fit(self):
         print("\nADVERSARIAL FITTING")
-        ref_ckpt_file = os.path.join("checkpoint", "global", "ref_depth_10.pth")
+        ref_ckpt_file = os.path.join("checkpoint", "refinement", "ref_depth_10.pth")
         self.refnet.load_state_dict(
             torch.load(ref_ckpt_file, weights_only=True))  # per evitare di preaddestrare ogni volta la refinement
         for epoch in range(self.args.max_epochs):
@@ -183,14 +186,16 @@ class Solver:
                 self.optimizer_R.zero_grad()
                 adv_loss = self.criterion_adv(self.discriminator(cr_images, fake_depth), real_labels)
                 rec_loss = self.criterion_rec(fake_depth, cr_depths)
+                ref_loss1 = self.criterion_rec1(fake_depth, cr_depths)
+                ref_loss2 = ssim(fake_depth, cr_depths)
 
                 # aggiornamento lambda_rec
                 ratio = rec_loss.item() / (adv_loss.item()+ 1e-8)
                 lambda_adv *= ratio ** alpha
-                lambda_adv = max(0.01, min(lambda_adv, 100.0))
+                lambda_adv = max(0.01, min(lambda_adv, 10.0))
 
                 # calcolo della loss
-                r_loss = rec_loss + lambda_adv * adv_loss
+                r_loss = rec_loss + lambda_adv * adv_loss + ref_loss1 + 1/ref_loss2
                 total_loss += r_loss.item()
                 r_loss.backward()
                 self.optimizer_R.step()
@@ -287,7 +292,10 @@ class Solver:
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
-                output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
+                if self.args.only_global:
+                    output = self.globalnet(images.to(self.device))
+                else:
+                    output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:

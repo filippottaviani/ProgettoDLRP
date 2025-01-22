@@ -18,6 +18,7 @@ def main():
                         default=os.path.join("C:\\", "Users", "FilippoOttaviani", "PycharmProjects", "ProgettoDLRP", "dataset"))
 
     parser.add_argument("--is_train", type=bool, default=True) # --is_train=False per effettuare il test
+    parser.add_argument("--only_global", type=bool, default=False)  # per effettuare il test solo con la global net
     parser.add_argument("--gl_ckpt_file", type=str, default="gl_depth_100.pth")
     parser.add_argument("--ref_ckpt_file", type=str, default="ref_depth_100.pth")
 
@@ -25,7 +26,7 @@ def main():
     solver = Solver(args)
     if args.is_train:
         #solver.globalnet_fit()
-        solver.refnet_pretrain()
+        #solver.refnet_pretrain()
         solver.adversarial_fit()
     else:
         solver.test()
