@@ -16,9 +16,7 @@ Questo progetto esplora la stima supervisionata della profondità monoculare da 
   1. Addestramento della U-Net (Global Net) con una funzione di perdita L1.
   2. Pre-addestramento della Refinement Net per ottimizzare i residui.
   3. Addestramento avversario tra Refinement Net e Discriminatore.
-- **Dati**:
-  - Dataset RGB-D con immagini ridotte a patch 64x64 per velocizzare l'addestramento.
-  - Augmentazione dei dati tramite dropout e cropping per regolarizzazione.
+- **Dati**:  Dataset RGB-D con immagini ridotte a patch 64x64 per velocizzare l'addestramento.
 - **Funzioni di Perdita**:
   - Perdita di ricostruzione (L1).
   - Perdita avversaria (Binary Cross-Entropy).
