@@ -7,7 +7,7 @@ import torchvision.transforms as transforms
 
 from model import Discriminator, GlobalNet, RefinementNet
 from dataset import DepthDataset
-from utils import visualize_img, ssim, plot_metrics
+from utils import visualize_img, ssim, plot_metrics, random_crop_pair
 
 class Solver:
 
@@ -32,7 +32,7 @@ class Solver:
         if self.args.is_train:
             self.train_data = DepthDataset(train=DepthDataset.TRAIN,
                                            data_dir=args.data_dir,
-                                           transform=data_augmentation)
+                                           transform=None)
             self.val_data = DepthDataset(train=DepthDataset.VAL,
                                          data_dir=args.data_dir,
                                          transform=None)
@@ -46,20 +46,20 @@ class Solver:
             self.criterion_rec = torch.nn.L1Loss()
 
             # ottimizzatori
-            self.optimizer_G = torch.optim.Adam(self.globalnet.parameters(), lr=args.lr)
-            self.optimizer_R = torch.optim.Adam(self.refnet.parameters(), lr=args.lr)
-            self.optimizer_D = torch.optim.Adam(self.discriminator.parameters(), lr=args.lr)
+            self.optimizer_G = torch.optim.Adam(self.globalnet.parameters(), lr=args.lr, betas=(0.9,0.999))
+            self.optimizer_R = torch.optim.RAdam(self.refnet.parameters(), lr=args.lr, betas=(0.9,0.999))
+            #self.optimizer_R = torch.optim.SGD(self.refnet.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
+            self.optimizer_D = torch.optim.SGD(self.discriminator.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
 
             # pesi delle loss
-            self.lambda_adv = 100
+            self.lambda_start = 100
+
+            # fattore di crop per la refinement
+            self.crop_size = 64
 
             # train/val
             self.set = DepthDataset.TRAIN
             #self.set = DepthDataset.VAL
-
-            # salvataggio delle metriche addestramento global
-            self.gl_train_ssim_epochs = []
-            self.gl_train_rmse_epochs = []
 
             # salvataggio delle metriche  addestramento adversarial
             self.adv_train_ssim_epochs = []
@@ -111,9 +111,8 @@ class Solver:
 
     def refnet_pretrain(self):
         print("\n\nREFINEMENT NET PRE-TRAINING")
-        # per evitare di riaddestrare ogmi volta la global
         gl_ckpt_file = os.path.join("checkpoint", "global", self.args.gl_ckpt_file)
-        self.globalnet.load_state_dict(torch.load(gl_ckpt_file, weights_only=True))
+        self.globalnet.load_state_dict(torch.load(gl_ckpt_file, weights_only=True)) # per evitare di riaddestrare ogmi volta la global
 
         for epoch in range(10):
             self.refnet.train()
@@ -138,28 +137,43 @@ class Solver:
             # salvataggio del checkpoint
             if epoch == 10:
                 self.adv_evaluate() # metriche prima dell'addestramento avversario
+                self.save_refinenment_final(self.args.ref_ckpt_dir, self.args.ref_ckpt_name, epoch)
 
     def adversarial_fit(self):
         print("\nADVERSARIAL FITTING")
+        ref_ckpt_file = os.path.join("checkpoint", "global", "ref_depth_10.pth")
+        self.refnet.load_state_dict(
+            torch.load(ref_ckpt_file, weights_only=True))  # per evitare di preaddestrare ogni volta la refinement
         for epoch in range(self.args.max_epochs):
             self.refnet.train()
             self.discriminator.train()
             total_loss = 0
-            lambda_adv = 100  # valore iniziale
+            lambda_adv = self.lambda_start  # valore iniziale
             alpha = 0.05  # velocità di adattamento
 
             for images, depth in self.train_loader:
                 images, depth = images.to(self.device), depth.to(self.device)
 
+                # Genera crop per ciascuna immagine nel batch
+                cropped_images, cropped_depths = [], []
+                for img, dpt in zip(images, depth):
+                    crop_img, crop_dpt = random_crop_pair(self, img, dpt)
+                    cropped_images.append(crop_img)
+                    cropped_depths.append(crop_dpt)
+
+                # Converte in batch tensor
+                cr_images = torch.stack(cropped_images)
+                cr_depths = torch.stack(cropped_depths)
+
                 # addestramento discriminatore
                 self.optimizer_D.zero_grad()
-                fake_depth = self.refnet(self.globalnet(images), images)
+                fake_depth = self.refnet(self.globalnet(cr_images), cr_images)
 
-                real_labels = torch.ones((images.size(0), 1)).to(self.device)
-                fake_labels = torch.zeros((images.size(0), 1)).to(self.device)
+                real_labels = torch.ones((cr_images.size(0), 1)).to(self.device)
+                fake_labels = torch.zeros((cr_images.size(0), 1)).to(self.device)
 
-                real_loss = self.criterion_adv(self.discriminator(images, depth), real_labels)
-                fake_loss = self.criterion_adv(self.discriminator(images, fake_depth.detach()), fake_labels)
+                real_loss = self.criterion_adv(self.discriminator(cr_images, cr_depths), real_labels)
+                fake_loss = self.criterion_adv(self.discriminator(cr_images, fake_depth.detach()), fake_labels)
 
                 d_loss = (real_loss + fake_loss) / 2
                 d_loss.backward()
@@ -167,16 +181,16 @@ class Solver:
 
                 # addestramento refinement
                 self.optimizer_R.zero_grad()
-                adv_loss = self.criterion_adv(self.discriminator(images, fake_depth), real_labels)
-                rec_loss = self.criterion_rec(fake_depth, depth)
+                adv_loss = self.criterion_adv(self.discriminator(cr_images, fake_depth), real_labels)
+                rec_loss = self.criterion_rec(fake_depth, cr_depths)
 
                 # aggiornamento lambda_rec
-                #ratio = rec_loss.item() / (adv_loss.item()+ 1e-8)
-                #lambda_adv *= ratio ** alpha
-                #lambda_adv = max(0.01, min(lambda_adv, 100.0))
+                ratio = rec_loss.item() / (adv_loss.item()+ 1e-8)
+                lambda_adv *= ratio ** alpha
+                lambda_adv = max(0.01, min(lambda_adv, 100.0))
 
                 # calcolo della loss
-                r_loss = rec_loss + self.lambda_adv * adv_loss
+                r_loss = rec_loss + lambda_adv * adv_loss
                 total_loss += r_loss.item()
                 r_loss.backward()
                 self.optimizer_R.step()
@@ -192,7 +206,7 @@ class Solver:
                 self.adv_evaluate()
 
             if epoch == self.args.max_epochs:
-                self.save_refinenment(self.args.ref_ckpt_dir, self.args.ref_ckpt_name, epoch)
+                self.save_refinenment_final(self.args.ref_ckpt_dir, self.args.ref_ckpt_name, epoch)
                 plot_metrics(self)
 
     def global_evaluate(self):
@@ -220,10 +234,6 @@ class Solver:
         print("RMSE on", suffix, ":", rmse_acc / len(loader))
         print("SSIM on", suffix, ":", ssim_acc / len(loader),"\n")
 
-        # salvataggio metriche per il grafico
-        self.gl_train_ssim_epochs.append(ssim_acc / len(loader))
-        self.gl_train_rmse_epochs.append(rmse_acc / len(loader))
-
     def adv_evaluate(self):
         args = self.args
         if self.set == DepthDataset.TRAIN:
@@ -245,8 +255,8 @@ class Solver:
                 output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
-                #if i % self.args.visualize_every == 0:
-                    #visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
+                if i % self.args.visualize_every == 0:
+                    visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
         print("RMSE on", suffix, ":", rmse_acc / len(loader))
         print("SSIM on", suffix, ":", ssim_acc / len(loader),"\n")
 
@@ -255,26 +265,29 @@ class Solver:
         self.adv_train_rmse_epochs.append(rmse_acc / len(loader))
 
     def save_global(self, gl_ckpt_dir,  gl_ckpt_name, global_step):
-        # checkpoint global
         save_path_gl = os.path.join(gl_ckpt_dir, "{}_{}.pth".format(gl_ckpt_name, global_step))
-        torch.save(self.globalnet.state_dict(), save_path_gl)
+        torch.save(self.globalnet.state_dict(), save_path_gl) # checkpoint global
         print("Checkpoint salvato")
 
-    def save_refinenment(self, ref_ckpt_dir,ref_ckpt_name, global_step):
-        # checkpoint refinement
+    def save_refinenment_pre(self, ref_ckpt_dir,ref_ckpt_name, global_step):
         save_path_ref = os.path.join(ref_ckpt_dir, "{}_{}.pth".format(ref_ckpt_name, global_step))
-        torch.save(self.refnet.state_dict(), save_path_ref)
+        torch.save(self.refnet.state_dict(), save_path_ref) # checkpoint refinement
+        print("Checkpoint salvato")
+
+    def save_refinenment_final(self, ref_ckpt_dir, ref_ckpt_name, global_step):
+        save_path_ref = os.path.join(ref_ckpt_dir, "{}_{}.pth".format(ref_ckpt_name, global_step))
+        torch.save(self.refnet.state_dict(), save_path_ref)  # checkpoint refinement
         print("Checkpoint salvato")
 
     def test(self):
-        loader = DataLoader(self.test_set, batch_size=self.args.batch_size, num_workers=4, shuffle=False, drop_last=False)
+        loader = DataLoader(self.test_set, batch_size=self.args.batch_size, num_workers=4, shuffle=False,
+                            drop_last=False)
 
         ssim_acc = 0.0
         rmse_acc = 0.0
         with torch.no_grad():
             for i, (images, depth) in enumerate(loader):
                 output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
-                #output = self.globalnet(images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
                 if i % self.args.visualize_every == 0:

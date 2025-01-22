@@ -31,7 +31,7 @@ class GlobalNet1(nn.Module):
 
             nn.Conv2d(512, 1024, kernel_size=2, stride=1, padding=1),
             nn.BatchNorm2d(1024),
-            nn.ReLU(),
+            nn.ReLU()
         )
 
         # decoder
@@ -113,15 +113,12 @@ class RefinementNet(nn.Module):
         )
 
     def forward(self, out_global, x):
-
-        # refinement
         ref1_output = self.refinement1(out_global)
         #print(ref1_output.shape )
         add = self.additional(x)
         concat = torch.cat((add, ref1_output), dim=1)
-        ref2_output = self.refinement2(concat) # si aspetta 256
+        ref2_output = self.refinement2(concat)  # concatenazione tra uscita global e uscita ref
 
-        # concatenazione tra uscita global e uscita ref
         return torch.add(out_global, ref2_output)
 
 
@@ -145,22 +142,22 @@ class Discriminator(nn.Module):
             nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
-            #nn.Dropout(0.3),
+            nn.Dropout(0.3),
 
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
-            #nn.Dropout(0.3),
+            nn.Dropout(0.3),
 
             nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2),
-            #nn.Dropout(0.3),
+            nn.Dropout(0.3),
 
             nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2),
-            #nn.Dropout(0.3),
+            nn.Dropout(0.3),
         )
 
         # layer completamente connessi
@@ -216,8 +213,10 @@ class GlobalNet(nn.Module):
     def block(self, in_channels, out_channels):
         return nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 

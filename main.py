@@ -4,8 +4,8 @@ from solver import Solver
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--max_epochs", type=int, default=100)
     
     parser.add_argument("--gl_ckpt_dir", type=str, default="./checkpoint/global")
@@ -19,7 +19,7 @@ def main():
 
     parser.add_argument("--is_train", type=bool, default=True) # --is_train=False per effettuare il test
     parser.add_argument("--gl_ckpt_file", type=str, default="gl_depth_100.pth")
-    parser.add_argument("--ref_ckpt_file", type=str, default="ref_depth_50.pth")
+    parser.add_argument("--ref_ckpt_file", type=str, default="ref_depth_100.pth")
 
     args = parser.parse_args()
     solver = Solver(args)

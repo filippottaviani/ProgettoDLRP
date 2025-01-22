@@ -72,10 +72,9 @@ def random_crop_pair(self, image, depth):
 
 def plot_metrics(self):
     plt.plot(self.adv_train_rmse_epochs, label="ADV RMSE")
-    plt.xlabel("Intervallo di valutazione (10 epoche)")
+    plt.xlabel("Intervalli di valutazione (ogni 10 epoche)")
     plt.ylabel("RMSE")
     plt.title("Andamento RMSE durante gli addestramenti")
-    #plt.legend()
     plt.grid(True)
     plt.show(block=False)
     plt.pause(20)
@@ -83,10 +82,9 @@ def plot_metrics(self):
     plt.close()
 
     plt.plot(self.adv_train_ssim_epochs, label="ADV SSIM")
-    plt.xlabel("Intervallo di valutazione (10 epoche)")
+    plt.xlabel("Intervalli di valutazione (ogni 10 epoche)")
     plt.ylabel("SSIM")
     plt.title("Andamento SSIM durante gli addestramenti")
-    #plt.legend()
     plt.grid(True)
     plt.show(block=False)
     plt.pause(20)
