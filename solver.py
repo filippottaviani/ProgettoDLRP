@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import datetime  # per verificare i tempi di addestramento
 import torchvision.transforms as transforms
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from model import Discriminator, GlobalNet, RefinementNet
 from dataset import DepthDataset
@@ -21,8 +22,9 @@ class Solver:
             transforms.RandomResizedCrop((144, 256), scale=(0.9, 1.0))
         ])
 
-        # per testare solo la global
-        self.args.only_global = True
+        # impostazioni del training
+        self.args.is_train = True
+        self.args.only_global = False # True per testare solo la global
 
         # turn on the CUDA if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,8 +56,11 @@ class Solver:
             self.optimizer_R = torch.optim.SGD(self.refnet.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
             self.optimizer_D = torch.optim.SGD(self.discriminator.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0005)
 
+            # scheduling di riduzione della LR
+            self.scheduler_R = ReduceLROnPlateau(self.optimizer_R, mode='min', factor=0.5, patience=5)
+
             # pesi delle loss
-            self.lambda_start = 10
+            self.lambda_start = 5
 
             # fattore di crop per la refinement
             self.crop_size = 128
@@ -75,7 +80,7 @@ class Solver:
             if not os.path.exists(args.ref_ckpt_dir):
                 os.makedirs(args.ref_ckpt_dir)
         else:
-            self.test_set = DepthDataset(train=DepthDataset.TEST,  # train = DepthDataset.VAL per il val set
+            self.test_set = DepthDataset(train=DepthDataset.TRAIN,  # train = DepthDataset.VAL per il val set
                                          data_dir=self.args.data_dir)  # risistemare prima del commit
             gl_ckpt_file = os.path.join("checkpoint", "global", self.args.gl_ckpt_file)
             ref_ckpt_file = os.path.join("checkpoint", "refinement", self.args.ref_ckpt_file)
@@ -192,7 +197,7 @@ class Solver:
                 # aggiornamento lambda_rec
                 ratio = rec_loss.item() / (adv_loss.item()+ 1e-8)
                 lambda_adv *= ratio ** alpha
-                lambda_adv = max(0.01, min(lambda_adv, 10.0))
+                lambda_adv = max(0.01, min(lambda_adv, 5.0))
 
                 # calcolo della loss
                 r_loss = rec_loss + lambda_adv * adv_loss + ref_loss1 + 1/ref_loss2
@@ -200,18 +205,26 @@ class Solver:
                 r_loss.backward()
                 self.optimizer_R.step()
 
+            # aggiornamento della loss
+            avg_loss = total_loss / len(self.train_loader)
+            self.scheduler_R.step(avg_loss)
+
             # monitoraggio addestramento
             time = datetime.datetime.now()
             curr_clock = time.strftime("%H:%M:%S")
-            print("Epoch [{}/{}] Loss R: {:.3f} Loss D: {:.3f} Time:{}".format(epoch + 1, self.args.max_epochs,
-                                                                               r_loss, d_loss, curr_clock))
+            print("Epoch [{}/{}] Loss R: {:.3f} Loss D: {:.3f} Refinement LR:{} Time:{}".format(epoch + 1,
+                                                                                                self.args.max_epochs,
+                                                                                                r_loss, d_loss,
+                                                                                                self.optimizer_R.param_groups[0]['lr'],
+                                                                                                curr_clock))
             epoch += 1
 
-            if epoch % 10 == 0:
-                self.adv_evaluate()
+            #if epoch % 10 == 0:
+                #self.adv_evaluate()
 
             if epoch == self.args.max_epochs:
                 self.save_refinenment_final(self.args.ref_ckpt_dir, self.args.ref_ckpt_name, epoch)
+                self.adv_evaluate()
                 plot_metrics(self)
 
     def global_evaluate(self):
@@ -260,8 +273,8 @@ class Solver:
                 output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
-                if i % self.args.visualize_every == 0:
-                    visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
+                #if i % self.args.visualize_every == 0:
+                    #visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
         print("RMSE on", suffix, ":", rmse_acc / len(loader))
         print("SSIM on", suffix, ":", ssim_acc / len(loader),"\n")
 
@@ -287,7 +300,6 @@ class Solver:
     def test(self):
         loader = DataLoader(self.test_set, batch_size=self.args.batch_size, num_workers=4, shuffle=False,
                             drop_last=False)
-
         ssim_acc = 0.0
         rmse_acc = 0.0
         with torch.no_grad():
