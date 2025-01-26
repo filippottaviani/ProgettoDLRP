@@ -15,7 +15,8 @@ def main():
     parser.add_argument("--evaluate_every", type=int, default=2)
     parser.add_argument("--visualize_every", type=int, default=100)
     parser.add_argument("--data_dir", type=str,
-                        default=os.path.join("C:\\", "Users", "FilippoOttaviani", "PycharmProjects", "ProgettoDLRP", "dataset"))
+                        default=os.path.join("C:\\", "Users", "FilippoOttaviani", "PycharmProjects", "ProgettoDLRP",
+                                             "dataset"))
 
     parser.add_argument("--is_train", type=bool, default=True)
     parser.add_argument("--only_global", type=bool, default=False)  # per effettuare il test solo con la global net

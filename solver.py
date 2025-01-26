@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import datetime  # per verificare i tempi di addestramento
-import torchvision.transforms as transforms
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from model import Discriminator, GlobalNet, RefinementNet
@@ -43,7 +42,7 @@ class Solver:
             # criteri
             self.criterion_adv = torch.nn.BCELoss()
             self.criterion_rec = torch.nn.L1Loss()
-            self.criterion_rec1 = torch.nn.MSELoss() # prova
+            self.criterion_rec1 = torch.nn.MSELoss()
 
             # ottimizzatori
             self.optimizer_G = torch.optim.Adam(self.globalnet.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -54,8 +53,8 @@ class Solver:
             self.scheduler_R = ReduceLROnPlateau(self.optimizer_R, mode='min', factor=0.5, patience=5)
             self.scheduler_G = ReduceLROnPlateau(self.optimizer_G, mode='min', factor=0.5, patience=5)
 
-            # pesi delle loss
-            self.lambda_start = 5
+            # peso della loss avversaria
+            self.lambda_adv = 5
 
             # fattore di crop per la refinement
             self.crop_size = 128
@@ -174,8 +173,6 @@ class Solver:
             self.refnet.train()
             self.discriminator.train()
             total_r_loss = 0
-            lambda_adv = self.lambda_start  # valore iniziale
-            alpha = 0.05  # velocità di adattamento
 
             for images, depth in self.train_loader:
                 images, depth = images.to(self.device), depth.to(self.device)
@@ -212,13 +209,8 @@ class Solver:
                 ref_loss1 = self.criterion_rec1(fake_depth, cr_depths)
                 ref_loss2 = ssim(fake_depth, cr_depths)
 
-                # aggiornamento lambda_rec
-                #ratio = rec_loss.item() / (adv_loss.item()+ 1e-8)
-                #lambda_adv *= ratio ** alpha
-                #lambda_adv = max(0.01, min(lambda_adv, 5.0))
-
                 # calcolo della loss
-                r_loss = rec_loss + lambda_adv * adv_loss + ref_loss1 + 1/ref_loss2
+                r_loss = rec_loss + self.lambda_adv * adv_loss + ref_loss1 + 1/ref_loss2
                 total_r_loss += r_loss.item()
                 r_loss.backward()
                 self.optimizer_R.step()
@@ -294,8 +286,8 @@ class Solver:
                 output = self.refnet(self.globalnet(images.to(self.device)), images.to(self.device))
                 ssim_acc += ssim(output, depth.to(self.device)).item()
                 rmse_acc += torch.sqrt(F.mse_loss(output, depth.to(self.device))).item()
-                #if i % self.args.visualize_every == 0:
-                    #visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
+                if i % self.args.visualize_every == 0:
+                    visualize_img(images[0].cpu(), depth[0].cpu(),output[0].cpu().detach(), suffix=suffix)
         print("RMSE on", suffix, ":", rmse_acc / len(loader))
         print("SSIM on", suffix, ":", ssim_acc / len(loader),"\n")
 
