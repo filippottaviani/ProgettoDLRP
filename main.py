@@ -25,8 +25,8 @@ def main():
     args = parser.parse_args()
     solver = Solver(args)
     if args.is_train:
-        #solver.globalnet_fit()
-        #solver.refnet_pretrain()
+        solver.globalnet_fit()
+        solver.refnet_pretrain()
         solver.adversarial_fit()
     else:
         solver.test()

@@ -16,15 +16,9 @@ class Solver:
         # prepare a dataset
         self.args = args
 
-        # Definisco le trasformazioni per la data augmentation (non utilizzate)
-        data_augmentation = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomResizedCrop((144, 256), scale=(0.9, 1.0))
-        ])
-
         # impostazioni del training
         self.args.is_train = True
-        self.args.only_global = False # True per testare solo la global
+        self.args.only_global = False
 
         # turn on the CUDA if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,7 +81,7 @@ class Solver:
             if not os.path.exists(args.ref_ckpt_dir):
                 os.makedirs(args.ref_ckpt_dir)
         else:
-            self.test_set = DepthDataset(train=DepthDataset.TRAIN,  # train = DepthDataset.VAL per il val set
+            self.test_set = DepthDataset(train=DepthDataset.VAL,# train = DepthDataset.VAL per il val set
                                          data_dir=self.args.data_dir)  # risistemare prima del commit
             gl_ckpt_file = os.path.join("checkpoint", "global", self.args.gl_ckpt_file)
             ref_ckpt_file = os.path.join("checkpoint", "refinement", self.args.ref_ckpt_file)
